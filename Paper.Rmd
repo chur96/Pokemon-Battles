@@ -1,0 +1,264 @@
+---
+title: "The Best that No One Ever Was"
+author: "Chan Hur"
+date: "May 8, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(grid)
+library(gridExtra)
+library(caret)
+library(caTools)
+library(randomForest)
+library(gbm)
+
+combat <- read.csv('combats.csv')
+tests <- read.csv('tests.csv')
+pokemon <- read.csv('pokemon.csv')
+types <- read.csv('types.csv', row.names = 1)
+
+colnames(pokemon) <- c( "ID" , "Name"    ,   "Type1"   ,  "Type2"  ,   "HP"    ,     "Attack"    ,
+                        "Defense"  ,  "Sp.Atk"   , "Sp.Def"  ,  "Speed"   ,   "Generation",
+                        "Legendary" )
+
+pokemon$Type1 <- as.character(pokemon$Type1)
+pokemon$Type2 <- as.character(pokemon$Type2)
+pokemon$Type2[pokemon$Type2 == ''] <- 'None'
+```
+
+##Background
+   The implementation of machine learning models in video games has been a popular topic. The usual course seems to be reinforcement learning with A.I. in varying games like chess and even Smash Bros. The potential for implementing models for supervised learning can exists in games that focus more on numbers and statistics. A well-beloved franchise that has proliferated for the last 20 odd years, the Pokemon video games, specifically handheld titles, have grown in complexity over the years. As most people who have played the games know, at its core, pokemon is like a Rock-Paper-Scissors game with types associated with each pokemon i.e. fire, water, etc., only that there are now 18 types which is 3 more since its inception. The increase may seem small, but in actuality, we are looking at interactions with a 15x15 to an 18x18 which is an additional 100 interactions. Not to mention, the pokemon cast has risen from the original 151 to an astounding 800. As with any popular competitive video game scene, an inevitability is the rise of professional competitions with cash prizes so there is some incentive to find out which pokemon are the best to form teams. Through many simulated battles, it may be possible to find out which pokemon are the best with classification models. The data used was compiled by people on Kaggle and came in three files: combat which had simulated battles, tests which was without results, and pokemon for descriptions of pokemon including types and base stats. 
+
+##Methods
+  The data collected looks like it was scraped from data bases revolving around the game so they are objective measures free of bias.  
+
+  Because the main focus of pokemon are types, looking at them and how they associate with a pokemon's stats will be important. I began with looking at how the types were distributed with visualizations. It looks like a majority of the pokemon have a single type which isn't too surprising. The combinations of types does not look uniformly distributed. Rarer types like fairy are not too varied but types like bug and water have many secondary types associated. This could play a factor in potential match ups since a more prevalent type may end up being countered.  
+
+
+```{r echo=FALSE}
+ggplot(pokemon, aes(x=Type1,y=Type2)) +
+   geom_jitter(aes(colour = Type1)) +
+   theme(axis.text.x = element_text(angle = 90,hjust=1))
+```
+
+Next was looking at the base stats with types through box plots.
+```{r echo=FALSE}
+t1Att <- ggplot(pokemon, aes(x=Type1, y=Attack)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1), legend.position = 'none')
+t1Def <- ggplot(pokemon, aes(x=Type1, y=Defense)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t1SpAtt <- ggplot(pokemon, aes(x=Type1, y=Sp.Atk)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t1SpDef <- ggplot(pokemon, aes(x=Type1, y=Sp.Def)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t1HP <- ggplot(pokemon, aes(x=Type1, y=HP)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t1Speed <- ggplot(pokemon, aes(x=Type1, y=Speed)) +
+  geom_boxplot(aes(colour = Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+grid.arrange(t1HP, t1Att,t1Def, t1Speed, t1SpAtt, t1SpDef, nrow = 2)
+```
+
+  For type 1, it looks like HP, Defense, and Special Defense are fairly close across types. Outstanding for defense, Rock and Steel seem to be higher which makes intuitive sense. The highly varied distributions of Attack, Special Attack, and Speed will likely play a larger part in the model.  
+
+```{r echo=FALSE}
+t2Att <- ggplot(pokemon, aes(x=Type2, y=Attack)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1), legend.position = 'none')
+t2Def <- ggplot(pokemon, aes(x=Type2, y=Defense)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t2SpAtt <- ggplot(pokemon, aes(x=Type2, y=Sp.Atk)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t2SpDef <- ggplot(pokemon, aes(x=Type2, y=Sp.Def)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t2HP <- ggplot(pokemon, aes(x=Type2, y=HP)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+t2Speed <- ggplot(pokemon, aes(x=Type2, y=Speed)) +
+  geom_boxplot(aes(colour = Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1),legend.position = 'none')
+
+grid.arrange(t2HP, t2Att,t2Def, t2Speed, t2SpAtt, t2SpDef, nrow = 2)
+```
+  
+
+  For Type 2, the distributions of the box plots seem to follow the overall pattern of the Type 1 plots. It is notable that since a majority of pokemon had only one type, they were all thrown into a single category for these plots under "None". Keeping this in mind, the interesting part is that since the boxes are fairly consistent then the types may be correlated with the pokemon's base statistics. Since there are few variables, they were all incorporated into the model:
+```{r echo = FALSE}
+colnames(pokemon)[3:12]
+```
+```{r echo=FALSE}
+df <- combat %>% left_join(pokemon, c("First_pokemon" = "ID") ) %>%
+  left_join(pokemon, c("Second_pokemon" = "ID"))
+colnames(df)[4:14] <- paste('P1_' , colnames(pokemon)[2:12],sep = '')
+colnames(df)[15:25] <- paste('P2_',colnames(pokemon)[2:12],sep = '')
+
+#Binary 1/0 for if pokemon1 wins
+df$P1_Win <- ifelse(df$First_pokemon == df$Winner, 1,0)
+df$P1_Win <- as.factor(df$P1_Win)
+
+
+#Type Multiplier for pokemon 1
+df$P1T1_Multi <- 0
+df$P1T2_Multi <- 0
+df$P1T1_Multi <- apply(df, 1, function(x) (types[x[5],x[16]] * types[x[5], x[17]]) )
+df$P1T2_Multi <- apply(df, 1, function(x) (types[x[6],x[16]] * types[x[6], x[17]]) )
+
+#Difference of pokemon's stats
+mat1 <- as.matrix(df[,7:12], ncol=6)
+mat2 <- as.matrix(df[,18:23], ncol=6)
+
+Diff_Mat <- as.data.frame(mat1 - mat2)
+colnames(Diff_Mat) <- paste("Diff_", colnames(pokemon)[5:10], sep = '')
+rm(mat1,mat2)
+
+#Binary if Legendary
+df$P1_Legendary <- ifelse(df$P1_Legendary == "True", 1, 0)
+df$P2_Legendary <- ifelse(df$P2_Legendary == "True", 1, 0)
+
+#Final 
+df2 <- df[, c(4,13:15,24:28)]
+df2 <- cbind(df2, Diff_Mat)
+df2 <- df2[, c(1,4,7:15,2:3,5:6)]
+df2[, c(3,12:15)] <- lapply(df2[, c(3,12:15)], factor) #Make certain variables factors
+```
+
+  When it came to feature engineering, the only variable missing that came to mind was the type advantage any given pokemon would have over another. This required the creation of a simple 18x18 table of what effect one pokemon would have over the other: No effect of 0, Not Very Effective of 0.5, Normal of 1, or Super Effective of 2. Since a pokemon can have at most two types, a matchup can result in type advantages of 0, 0.25, 0.5, 1, 2, and 4, so two type advantage variables were created for each possibility. An interaction term of the two type advantage variables for the model was considered; however, the possibility of an interaction of 0 and 4 and other such combinations would have been problematic so it was left out. Because the data frame had grown relatively large with including both pokemons' relevant stats, the difference in their statistics was used in order to cut down on the variables used in the model which would maintain any advantage a pokemon had over another in a given statistic.
+```{r echo=FALSE}
+#Train Test Split
+split <- sample.split(df2$P1_Win, SplitRatio = .8)
+train <- subset(df2, split == TRUE)
+test <- subset(df2, split == FALSE)
+
+#Logistic Regression
+#Full Model
+log_reg <- glm(as.formula(paste(colnames(train)[3],"~", paste(colnames(train)[4:15], collapse = '+'), sep = '')), 
+               train, family = binomial(link = 'logit'))
+
+
+#Reduced Model
+log_reg2 <- glm(P1_Win ~ 1, train, family = binomial(link = 'logit'))
+
+#Model Selection: Results return full model every time AIC 28680
+# step(log_reg, direction = "backward")
+# step(log_reg2, scope = list(lower=log_reg2,upper=log_reg),direction = 'forward')
+# step(log_reg2, scope = list(lower=log_reg2,upper=log_reg),direction = 'both')
+
+```
+
+  The features were ready to be incorporated into the model. The combat dataset which contained 50,000 simulated   battles was split into a training and test set with a 80/20 split. Logistic regression was the first model used for classification. As a preliminary step, model selection procedures were used by trying forward, backward, and stepwise selection. All three procedures returned the same model with all parameters with an AIC of 28680. So I proceeded to run the full model.
+
+```{r echo=FALSE}
+#Model Check
+#Logistic Regression gives an accuracy of 88.52%
+prob_pred <- predict(log_reg, newdata = test, type = 'response')
+y_pred <- ifelse(prob_pred >= 0.5, 1, 0)
+
+cm <- table(test[,3], y_pred)
+cm
+sum(diag(cm))/sum(cm)
+
+```
+  According to the confusion matrix, the logistic regression model was able to correctly predict 88.52% of the matches which is fairly good but maybe it could be better with a different classification model.
+  
+```{r echo=FALSE}
+#Random Forest: 95.56%
+forest <- randomForest(as.formula(paste(colnames(train)[3],"~", paste(colnames(train)[4:15], collapse = '+'), sep = '')), train, ntree = 100)
+
+par(mfrow = c(1,2))
+plot(forest)
+varImpPlot(forest)
+
+prob_pred_rf <- predict(forest, newdata = test, type = 'response')
+
+cm_rf <- table(test[,3], prob_pred_rf)
+cm_rf
+sum(diag(cm_rf))/sum(cm_rf)
+```
+  Another classification model used was the random forest model which performed much better than the logistic regression model. Random forest correctly predicted 95.56% of the matches a 7% increase from logistic. Looking at the random forest plot, it looks like error rates seems to level out around 60 trees. According to the variance importance plot, the difference in speed was the most important variable by far. A higher speed gives a pokemon priority in a battle so if the difference is great enough, it will have a large impact on the battle, especially in type advantages. Interestingly, the type multipliers constructed were not as important as differences in base stats.  
+  The random forest model was applied to the remaining test data set did not include outcomes of battles. The battles were aggregated into win percentages for individual pokemon and by type. From the results, the best pokemon were selected to be Weaville, Aerodactyl, Mismagius, Sceptile, Talonflame, and Charizard. The best types were Flying and Fire but it looks like in type 2 it was close between tree other types. 
+
+```{r echo=FALSE}
+#Add features to the tests dataset
+tests <- tests %>% left_join(pokemon, c("First_pokemon" = "ID") ) %>%
+  left_join(pokemon, c("Second_pokemon" = "ID"))
+colnames(tests)[3:13] <- paste('P1_' , colnames(pokemon)[2:12],sep = '')
+colnames(tests)[14:24] <- paste('P2_',colnames(pokemon)[2:12],sep = '')
+
+
+tests$P1T1_Multi <- 0
+tests$P1T2_Multi <- 0
+tests$P1T1_Multi <- apply(tests, 1, function(x) (types[x[4],x[15]] * types[x[4], x[16]]) )
+tests$P1T2_Multi <- apply(tests, 1, function(x) (types[x[5],x[15]] * types[x[5], x[16]]) )
+
+
+mat3 <- as.matrix(tests[,6:11], ncol=6)
+mat4 <- as.matrix(tests[,17:22], ncol=6)
+
+Diff_Mat2 <- as.data.frame(mat3 - mat4)
+colnames(Diff_Mat2) <- paste("Diff_", colnames(pokemon)[5:10], sep = '')
+rm(mat3,mat4)
+
+tests$P1_Legendary <- ifelse(tests$P1_Legendary == "True", 1, 0)
+tests$P2_Legendary <- ifelse(tests$P2_Legendary == "True", 1, 0)
+
+#Final 
+final_test <- tests[, c(3,12:14,23:26)]
+final_test <- cbind(final_test, Diff_Mat2)
+final_test <- final_test[, c(1,4,7:14,2:3,5:6)]
+final_test[, c(11:14)] <- lapply(final_test[, c(11:14)], factor)
+
+prob_pred_rf_2 <- predict(forest, newdata = final_test, type = 'response')
+final_test$P1_Win <- prob_pred_rf_2
+
+results <- final_test[, c(1,2,15)]
+results <- results %>% left_join(pokemon, by = c("P1_Name" = "Name")) %>% 
+  left_join(pokemon, by = c("P2_Name" = "Name"))
+results <- results[, c(1:3,5:6)]
+colnames(results)[4:5] <- paste("P1_", colnames(pokemon)[3:4], sep = '') 
+results$P1_Win <- as.numeric(results$P1_Win) - 1
+
+#Best pokemon by Win %
+blah <- results %>% group_by(P1_Name) %>% count(P1_Name, P1_Type1, P1_Type2) 
+blah2 <- results %>% group_by(P1_Name) %>% summarise(Win = sum(P1_Win))
+poke_performance <- blah %>% left_join(blah2, by = c('P1_Name' = 'P1_Name')) %>% mutate(Win = Win/n)
+
+#Best Type
+#Type 1
+blah <- results %>% group_by(P1_Type1) %>% count(P1_Type1)
+best_type <- results %>% group_by(P1_Type1) %>% summarise_at(.vars = 'P1_Win', sum) %>% left_join(blah, by = c('P1_Type1' = 'P1_Type1'))
+best_type$Win_Pct<- best_type$P1_Win / best_type$n
+#Type 2
+blah2 <- results %>% group_by(P1_Type2) %>% count(P1_Type2)
+best_type2 <- results %>% group_by(P1_Type2) %>% summarise_at(.vars = 'P1_Win', sum) %>% left_join(blah2, by = c('P1_Type2' = 'P1_Type2'))
+best_type2$Win_Pct<- best_type2$P1_Win / best_type2$n
+
+btype1 <- ggplot(best_type, aes(P1_Type1, Win_Pct)) + 
+  geom_bar(stat = 'identity', aes(fill= P1_Type1)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1))
+btype2 <- ggplot(best_type2, aes(P1_Type2, Win_Pct)) + 
+  geom_bar(stat = 'identity', aes(fill= P1_Type2)) +
+  theme(axis.text.x = element_text(angle=90,hjust=1))
+
+grid.arrange(btype1,btype2,nrow=1)
+```
+
+##Conclusion
+Based on my findings, a way to check my team was by looking at past Pokemon tournament winning teams. Unfortunately, it did not seem like there was much matching between my team and theirs. For the purpose of building a team, it is probably not best to pick based purely off of winning percentages as there can be other important factors. Further, I realized that my model would not be able to form good team compositions based on the team selected because of overlapping types. My model had good predicitve abilities for a given match, but there is room for improvement with more complicated features such as passive abilities. 
+
